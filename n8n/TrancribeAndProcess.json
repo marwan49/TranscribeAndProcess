@@ -1,0 +1,304 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "try {\n  // 1. Extrai o texto bruto do Gemini\n  const rawText = $input.item?.json?.candidates?.[0]?.content?.parts?.[0]?.text || \"\";\n\n  // 2. Normaliza o texto\n  const textoLimpo = rawText\n    .replace(/\\*\\*/g, '') // remove negrito\n    .replace(/##+/g, '')  // remove títulos markdown\n    .replace(/\\r\\n/g, '\\n')\n    .replace(/\\t/g, ' ')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n\n  // 3. Detecta automaticamente o tipo de documento\n  let tipoDeDocumento = \"Generico\";\n  if (/Necessidades|Prioridades|Objetivos/i.test(textoLimpo)) tipoDeDocumento = \"Necessidades e Prioridades\";\n  if (/Proposta Comercial|Diagnóstico|Orçamento/i.test(textoLimpo)) tipoDeDocumento = \"Proposta Comercial\";\n  if (/Relatório da Reunião Técnica|Principais pontos discutidos/i.test(textoLimpo)) tipoDeDocumento = \"Relatório Técnico\";\n  if (/Lista de Tarefas/i.test(textoLimpo)) tipoDeDocumento = \"Lista de Tarefas\";\n  if (/ATA DE REUNIÃO|Participantes|Pauta|Assinaturas/i.test(textoLimpo)) tipoDeDocumento = \"Ata de Reunião\";\n  if (/Tópicos mais importantes|Resumo conciso/i.test(textoLimpo)) tipoDeDocumento = \"Resumo\";\n\n  // 4. Extrai seções principais (usando regex flexível para títulos)\n  const regexSection = /(?:^|\\n\\n)([A-ZÁÉÍÓÚÂÊÔÇ][A-Za-zÁÉÍÓÚÂÊÔÇ\\s]+):\\n?/g;\n  let match;\n  const sections = {};\n  let lastKey = \"Resumo\";\n  let cursor = 0;\n\n  while ((match = regexSection.exec(textoLimpo)) !== null) {\n    const key = match[1].trim();\n    const start = match.index + match[0].length;\n    const prevContent = textoLimpo.substring(cursor, match.index).trim();\n    if (cursor === 0 && prevContent) {\n      sections[\"Introducao\"] = prevContent;\n    } else if (lastKey && prevContent) {\n      sections[lastKey] = prevContent;\n    }\n    lastKey = key;\n    cursor = start;\n  }\n  if (lastKey && cursor < textoLimpo.length) {\n    sections[lastKey] = textoLimpo.substring(cursor).trim();\n  }\n\n  // 5. Converte listas e tabelas em estruturas JSON\n  const estruturado = {};\n  let temPendencias = false;\n  let temTarefas = false;\n\n  for (const [key, content] of Object.entries(sections)) {\n    // Caso de tabela Markdown (| coluna | coluna | ...)\n    if (/\\|.*\\|/g.test(content)) {\n      const linhas = content.split('\\n').filter(l => l.includes('|'));\n      const headers = linhas[0].split('|').map(h => h.trim()).filter(Boolean);\n      const rows = linhas.slice(2).map(l => {\n        const cols = l.split('|').map(c => c.trim());\n        const obj = {};\n        headers.forEach((h, i) => { obj[h] = cols[i] || ''; });\n        return obj;\n      });\n      estruturado[key] = rows;\n      if (/Tarefa/i.test(key)) temTarefas = true;\n    }\n    // Caso de lista simples (* item)\n    else if (/^\\* /m.test(content)) {\n      estruturado[key] = content\n        .split('\\n')\n        .map(l => l.replace(/^\\* /, '').trim())\n        .filter(Boolean);\n      if (/Pendências/i.test(key)) temPendencias = true;\n    }\n    // Caso de tarefas detalhadas\n    else if (/Tarefa:/i.test(content) && /Responsável:/i.test(content)) {\n      const tasks = [];\n      const taskRegex = /\\* Tarefa: (.+?)\\n\\s*\\* Responsável: (.+?)\\n\\s*\\* Prazo: (.+)/g;\n      let tMatch;\n      while ((tMatch = taskRegex.exec(content)) !== null) {\n        tasks.push({\n          tarefa: tMatch[1].trim(),\n          responsavel: tMatch[2].trim(),\n          prazo: tMatch[3].trim()\n        });\n      }\n      estruturado[key] = tasks.length ? tasks : content;\n      if (tasks.length) temTarefas = true;\n    }\n    // Texto único (parágrafo ou observação)\n    else {\n      estruturado[key] = content;\n    }\n  }\n\n  // 6. Retorno final\n  return {\n    json: {\n      tipoDeDocumento,\n      textoLimpo,\n      estruturado,\n      temPendencias,\n      temTarefas\n    }\n  };\n\n} catch (error) {\n  return {\n    json: {\n      erro: \"Falha ao processar texto\",\n      detalhe: error.message\n    }\n  };\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        528
+      ],
+      "id": "d29dd39b-b8e1-4bec-9c89-a79dc06aab33",
+      "name": "Format Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "//Com base no ID é selecionado um propmt que sera enviado a API do Gemini\nconst prompts = {\n  \"1\": \"O texto abaixo foi transcrito de uma reunião. Forneça um resumo conciso do que foi discutido, liste os tópicos mais importantes e, se houver, detalhe as pendências e ações necessárias.\",\n  \"2\": \"O texto abaixo é de uma reunião com o cliente. Liste as necessidades, prioridades e objetivos mencionados pelo cliente para embasar a criação de uma proposta comercial completa.\",\n  \"3\": \"O texto abaixo é de uma reunião com o cliente. Elabore uma proposta comercial clara e detalhada, considerando o que foi discutido.\",\n  \"4\": \"O texto abaixo é de uma reunião técnica. Gere um relatório detalhado com os principais pontos discutidos, incluindo decisões, problemas levantados e próximos passos.\",\n  \"5\": \"O texto abaixo foi transcrito de uma reunião. Construa uma lista de tarefas organizadas por prioridade, com responsáveis e prazos sugeridos. não gere nenhuma tabela ou resultado alem de texto\",\n  \"6\": \"O texto abaixo foi transcrito de uma reunião. Crie um documento de ata formal contendo data, participantes, pauta, decisões e pendências.\"\n};\n\n// No modo \"Run Once for Each Item\", $input já é o item atual\nconst json = $input.item.json;\n\n// Obter o ID - agora acessando diretamente do json recebido\nconst id = String(json.id || '');\n\nif (!id || !prompts.hasOwnProperty(id)) {\n  return { \n    json: { \n      error: \"ID inválido ou não informado.\",\n      receivedData: json,\n      validIds: Object.keys(prompts)\n    } \n  };\n}\n\n// Preparar o resultado\nconst result = {\n  json: {\n    prompt: prompts[id],\n    id: id,\n    fileInfo: {\n      name: json.fileName,\n      type: json.mimeType\n    }\n  }\n};\n\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        416
+      ],
+      "id": "5dbb1039-6425-497c-bf04-d9af9405f750",
+      "name": "Map Prompt by ID1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "TranscribeAndThinkV2",
+        "responseMode": "lastNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "c1d283e7-eb02-47fb-a494-3cc1a57efdb7",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        512
+      ],
+      "webhookId": "00c1c375-a2cd-4259-a30e-f26752809669"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\nif (!item) {\n  throw new Error(\"Nenhum item de entrada recebido\");\n}\n\n// 1. Primeiro tentamos pegar o ID do corpo da requisição\nlet id = item.json?.body?.id;\n\n// 2. Se não encontrou no body, tenta pegar do JSON raiz\nif (!id) {\n  id = item.json?.id;\n}\n\n// 3. Se ainda não encontrou, tenta extrair do rawBody\nif (!id && item.json?.rawBody) {\n  try {\n    const rawBody = item.json.rawBody.toString();\n    const boundary = rawBody.split('\\r\\n')[0].trim();\n    const parts = rawBody.split(boundary).filter(part => part.trim() !== '--' && part.trim() !== '');\n    \n    parts.forEach(part => {\n      if (part.includes('name=\"id\"')) {\n        const idMatch = part.match(/name=\"id\"\\r\\n\\r\\n(\\d+)\\r\\n/);\n        if (idMatch) id = idMatch[1];\n      }\n    });\n  } catch (error) {\n    console.log(\"Erro ao processar rawBody:\", error.message);\n  }\n}\n\n// Verificar se encontramos o ID\nif (!id) {\n  throw new Error(\"ID não encontrado em nenhum local esperado (body.id, json.id ou form-data)\");\n}\n\n// 4. Preparar os dados binários (se existirem)\nlet binaryData = {};\nif (item.binary && Object.keys(item.binary).length > 0) {\n  binaryData = item.binary;\n}\n\n// 5. Retornar os dados processados\nreturn [{\n  json: {\n    id: id,\n    fileName: item.json?.fileName || binaryData?.file?.fileName,\n    mimeType: item.json?.mimeType || binaryData?.file?.mimeType,\n    debug: \"Processado com sucesso\"\n  },\n  binary: binaryData\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        512
+      ],
+      "id": "a127f6b3-8c8b-46db-819b-4e06c338eec5",
+      "name": "Process Form-Data"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Detect Media Type (Versão Corrigida para Run Once for Each Item)\nconst json = $input.item.json;\nconst binary = $input.item.binary;\n\n// Verificar se existem dados binários\nif (!binary || Object.keys(binary).length === 0) {\n  return {\n    json: {\n      type: \"text\",\n      detectedAs: \"plain text input\",\n      debug: \"No binary data found\"\n    }\n  };\n}\n\n// Obter a primeira chave binária disponível\nconst binaryKey = Object.keys(binary)[0];\nconst binaryData = binary[binaryKey];\n\n// Determinar o tipo de mídia\nconst isAudio = binaryData.mimeType && binaryData.mimeType.startsWith('audio/');\nconst isVideo = binaryData.mimeType && binaryData.mimeType.startsWith('video/');\n\n// Retornar resultado baseado no tipo de mídia\nif (isAudio || isVideo) {\n  return {\n    json: {\n      type: \"media\",\n      detectedAs: isAudio ? \"audio\" : \"video\",\n      mimeType: binaryData.mimeType,\n      fileName: binaryData.fileName,\n      binaryPropertyName: binaryKey\n    },\n    binary: binary\n  };\n}\n\n// Se não for áudio ou vídeo, retornar como arquivo genérico\nreturn {\n  json: {\n    type: \"file\",\n    detectedAs: \"binary file\",\n    mimeType: binaryData.mimeType,\n    fileName: binaryData.fileName\n  },\n  binary: binary\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        624
+      ],
+      "id": "3c0354de-8113-436a-93cd-a485da08858d",
+      "name": "Detect Media Type"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.resultado }}",
+        "options": {}
+      },
+      "id": "7942be45-888a-446c-88c5-356588c3b75b",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2896,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "text",
+        "joinMode": "keepNonMatches",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2048,
+        528
+      ],
+      "id": "45e01ca4-8fa8-477d-b1bc-8e6d2ada7a09",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://a62dcc7d4236.ngrok-free.app/transcribe",
+        "jsonParameters": true,
+        "options": {
+          "bodyContentType": "multipart-form-data"
+        },
+        "sendBinaryData": true,
+        "binaryPropertyName": "file"
+      },
+      "id": "66d45429-8c06-4453-a7c2-2f5667f8aa0a",
+      "name": "HTTP Request Whisper API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=SuaChaveGemini",
+        "jsonParameters": true,
+        "options": {
+          "bodyContentType": "json"
+        },
+        "bodyParametersJson": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"{{$json.prompt}}\\n\\n{{$json.text}}\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "id": "75d22893-9f98-424c-8ee0-0c1decdd93cc",
+      "name": "HTTP Request Gemini API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d7222940-e4d6-4633-8a4a-2f394395db54",
+              "name": "prompt",
+              "value": "={{ $json.prompt }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1792,
+        416
+      ],
+      "id": "2d39542b-c970-4c69-959d-d0f55e476a3c",
+      "name": "Get prompt"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Modo: Run Once for All Items\nconst inputItems = $input.all();\n\nif (!inputItems || inputItems.length < 2) {\n  throw new Error(\"É necessário ter pelo menos 2 itens para fazer o merge\");\n}\n\n// Encontra o item com o prompt (input1)\nconst promptItem = inputItems.find(item => item.json._source === \"input1\");\n// Encontra o item com o texto transcrito (input2)\nconst textItem = inputItems.find(item => item.json._source === \"input2\");\n\nif (!promptItem || !textItem) {\n  throw new Error(\"Não foi possível encontrar ambos os itens (prompt e texto)\");\n}\n\n// Cria o objeto consolidado\nconst mergedData = {\n  prompt: promptItem.json.prompt,\n  text: textItem.json.text  // Usa o texto completo transcrito\n};\n\n// Retorna como um único item\nreturn [{\n  json: mergedData\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        528
+      ],
+      "id": "9c0f87b7-2eb4-462b-b6d1-adb9e459d015",
+      "name": "Convert List to object"
+    }
+  ],
+  "connections": {
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Prompt by ID1": {
+      "main": [
+        [
+          {
+            "node": "Get prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Form-Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Form-Data": {
+      "main": [
+        [
+          {
+            "node": "Map Prompt by ID1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Detect Media Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Media Type": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Whisper API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Convert List to object",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Whisper API": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP Request Gemini API": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get prompt": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert List to object": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Gemini API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "01c9743d02183b67f0a86f295b133d3baeef237b42ad038ba61e22e5b007020a"
+  }
+}
