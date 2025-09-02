@@ -1,7 +1,7 @@
 # 🚀 **Transcribe & Think**
 ### Automação Inteligente de Reuniões com n8n + Google Colab
 
-> Projeto desenvolvido para uma **competição interna de automação low-code**. Nosso objetivo foi criar uma solução acessível e funcional que **transcreve reuniões e gera documentos estruturados**, utilizando ferramentas **totalmente gratuitas** e abertas.
+> Projeto desenvolvido para uma **competição interna de automação low-code**. Meu objetivo foi criar uma solução acessível e funcional que **transcreve reuniões e gera documentos estruturados**, utilizando ferramentas **totalmente gratuitas** e abertas.
 
 <br>
 
@@ -71,41 +71,39 @@ O projeto suporta **6 formatos de saída distintos**, cada um gerado por um prom
   "temPendencias": true/false,
   "temTarefas": true/false
 }
-🏃 Como Usar este Projeto
-Rodar a API no Colab:
+```
+## 🏃 **Como Usar este Projeto**
 
-Abra o notebook do projeto no Google Colab.
+### Rodar a API no Colab:
 
-Configure seu NGROK_AUTH_TOKEN na célula de variáveis de ambiente.
+1. Abra o notebook do projeto no Google Colab.
+2. Configure seu `NGROK_AUTH_TOKEN` na célula de variáveis de ambiente.
+3. Execute todas as células. Copie a URL pública gerada pelo ngrok.
 
-Execute todas as células. Copie a URL pública gerada pelo ngrok.
+### Importar o Workflow no n8n:
 
-Importar o Workflow no n8n:
+1. Importe o arquivo `n8n/workflow.json` na sua instância do n8n.
+2. Atualize o endpoint do nó "HTTP Request Whisper API" com a URL que você copiou do ngrok.
 
-Importe o arquivo n8n/workflow.json na sua instância do n8n.
+### Testar com cURL:
 
-Atualize o endpoint do nó "HTTP Request Whisper API" com a URL que você copiou do ngrok.
-
-Testar com cURL:
-
-Bash
-
+```bash
 curl -X POST "https://SEU_NGROK/transcribe" \
   -H "Content-Type: multipart/form-data" \
   -F "file=@/caminho/para/seu/arquivo.mp3" \
   -F "promptId=1"
-🚧 Limitações do Protótipo
+```
+## 🚧 **Limitações do Protótipo**
+
 Este projeto foi construído como uma prova de conceito em um ambiente de desenvolvimento. Por utilizar versões gratuitas e efêmeras das tecnologias, ele possui algumas limitações:
 
-⏱️ Duração de áudio: Os testes foram realizados com vídeos curtos (até 10 minutos) devido aos limites de processamento das versões gratuitas.
+- **⏱️ Duração de áudio:** Os testes foram realizados com vídeos curtos (até 10 minutos) devido aos limites de processamento das versões gratuitas.
+- **🔄 Sessões efêmeras:** O Google Colab e o ngrok podem expirar após algumas horas, exigindo uma nova configuração.
+- **🧠 Precisão:** O modelo Whisper-small foi usado por questões de custo, sendo menos preciso do que as versões maiores.
+- **🗣️ Cenários complexos:** Casos de uso com múltiplos falantes, sotaques fortes, ruído de fundo e sobreposição de vozes não foram totalmente validados.
 
-🔄 Sessões efêmeras: O Google Colab e o ngrok podem expirar após algumas horas, exigindo uma nova configuração.
+## 🤝 **Conclusão**
 
-🧠 Precisão: O modelo Whisper-small foi usado por questões de custo, sendo menos preciso do que as versões maiores.
-
-🗣️ Cenários complexos: Casos de uso com múltiplos falantes, sotaques fortes, ruído de fundo e sobreposição de vozes não foram totalmente validados.
-
-🤝 Conclusão
 O Transcribe & Think demonstra a viabilidade de construir automações inteligentes e de alto valor utilizando uma abordagem low-code. Ele serve como uma base sólida para um produto que, com os devidos aprimoramentos de infraestrutura e escalabilidade, pode se tornar uma ferramenta indispensável no ambiente corporativo.
 
 Fique à vontade para explorar, testar e, se possível, contribuir para este projeto!
